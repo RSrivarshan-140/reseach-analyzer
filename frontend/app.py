@@ -28,15 +28,40 @@ if "last_query_result" not in st.session_state:
 if "eval_result" not in st.session_state:
     st.session_state.eval_result = None
 
-# Backend Health Check Helper
-def check_backend_status():
-    try:
-        resp = requests.get(f"{API_BASE_URL}/", timeout=2)
-        return resp.status_code == 200
-    except Exception:
-        return False
+# Backend Health Check & Auto-start Helper
+@st.cache_resource
+def ensure_backend_running():
+    def check():
+        try:
+            r = requests.get(f"{API_BASE_URL}/", timeout=1)
+            return r.status_code == 200
+        except Exception:
+            return False
 
-backend_online = check_backend_status()
+    if not check():
+        try:
+            import threading
+            import uvicorn
+            from backend.main import app as fastapi_app
+            
+            def run_server():
+                uvicorn.run(fastapi_app, host="127.0.0.1", port=8000, log_level="warning")
+
+            thread = threading.Thread(target=run_server, daemon=True)
+            thread.start()
+
+            # Wait briefly for server startup
+            import time
+            for _ in range(12):
+                if check():
+                    break
+                time.sleep(0.5)
+        except Exception as e:
+            print(f"Failed to auto-start background FastAPI server: {e}")
+
+    return check()
+
+backend_online = ensure_backend_running()
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
